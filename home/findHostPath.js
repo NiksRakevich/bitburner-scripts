@@ -2,8 +2,9 @@ import { HELPLESS_HOST_NAMES } from 'utils.js';
 
 /** @param {NS} ns */
 export async function main(ns) {
-  const [hostToFind] = ns.args;
+  const [hostToFind, regexpFlags] = ns.args;
   const found = new Set();
+  const hostToFindRegexp = new RegExp(hostToFind, regexpFlags);
 
   function findHost(parent, fullPath = []) {
     const childs = ns
@@ -19,7 +20,7 @@ export async function main(ns) {
     childs.forEach(child => found.add(child));
 
     for (let child of childs) {
-      if (child === hostToFind) return fullPath;
+      if (child.match(hostToFindRegexp)) return [...fullPath, child];
       const currentPath = [...fullPath, child];
       const foundedPath = findHost(child, currentPath);
       if (foundedPath) {
@@ -31,6 +32,7 @@ export async function main(ns) {
   const foundedPath = findHost('home');
   if (foundedPath) {
     ns.tprint(`Host found, path: ${foundedPath.join(' -> ')}`);
+    ns.tprint(`CMD: ${foundedPath.map(host => `connect ${host}`).join('; ')}`);
   } else {
     ns.tprint('Host not found');
   }

@@ -46,7 +46,7 @@ Usage: run simpleHack.js target-host <-t number-of-threads>
 1. **totalKill.js** - kill all processes in all servers you have root access to.
 2. **purchaseAndUpgradeServers.js** - automatically purchasing and upgrading personal servers. **--maxUpgradeFirst** or **--muf** will not purchase new server unless previous one is not upgraded to maximum. Will upgrade evenly by default. **--name** the name of the server to purchase 'myserv' by default.
 3. **purchaseAndUpgradeHacknetNodes.js** - automatically purchasing and upgrading Hacknet Nodes.
-4. **findHostPath.js < host-name >** - finds the connection path to the desired host.
+4. **findHostPath.js < host-name > < regexp flags >** - finds the connection path to the desired host.
 5. **findHostByOrganization.js < organization > < regexp flags >** - finds host name by organization name.
 6. **checkBestServersToHack.js < limit >** - shows the table with sorted targets to hack by calculated significance. (Formula.exe required)
 7. **monitorServer.js** - shows the server information and threads required to prepare batch and attack batch, updating info every ~50ms. Formula.exe required. (see the screenshot with output below)

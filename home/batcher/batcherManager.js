@@ -7,27 +7,27 @@ import {
   getAdminRights,
   getMyServerNames,
   printTable,
-  getHMSStringDate
+  getHMSStringDate,
+  convertNumberToSuffixedString
 } from 'utils.js';
 
-// Record: ~100 b/s (400, 10, 0.9, 1.2, 3, 3)
+// Record with augmentations: 3.092 t/s (100, 5, 0.9, 3, 4)
 
 // Min 20.
 // Higher value - more RAM needed to batch infinitely.
 // Smaller value - more emergency recovery chance and money income per second.
-// 500 stable for iron-gym
-const ONE_WINDOW_DELAY = 400;
+const ONE_WINDOW_DELAY = 100;
 // Min * 3.
 // Higher value - more RAM needed to batch infinitely.
 // Smaller value - more emergency recovery chance and money income per second.
-// 10 stable for iron-gym
-const WINDOW_BETWEEN_BATCHES = ONE_WINDOW_DELAY * 10;
-const HACK_AMOUNT_MULTIPLIER = 0.9; // Should be < 1
-const REQUIRED_RAM_EMERGENCY_CHECK_MULTIPLIER = 1.2; // Should be > 1
+const WINDOW_BETWEEN_BATCHES = ONE_WINDOW_DELAY * 5;
+// Should be < 1.
+// Default 0.9, can be decreased when no enought RAM to even one batch yet
+const HACK_AMOUNT_MULTIPLIER = 0.9;
 const MAX_HACK_TIMES_EMERGENCY_CHECK = 3; // Should be > 1
 // Min 0.
 // Higher value - more warm up time significance while sorting the targets
-const APPROXIMATE_WARMUP_TIMES_BEFORE_EMERGENCY = 3;
+const APPROXIMATE_EMERGENCY_COUNT_IN_WARMUP_TIME_PERIOD = 4;
 
 const WEAKEN_SCRIPT_PATH = './weaken.js';
 const GROW_SCRIPT_PATH = './grow.js';
@@ -114,7 +114,10 @@ function getRequiredRAMforBatch(ns, growWeakenThreads, hackWeakenThreads, growTh
   const batchTime = weakenTime + (ONE_WINDOW_DELAY * 3);
   const batchesRunsInOneTime = Math.ceil((batchTime / WINDOW_BETWEEN_BATCHES) * BATCHES_RUNS_IN_ONE_TIME_CORRECTIVE);
   const batchRequiredRam = batchesRunsInOneTime * oneBatchRAM;
-  return batchRequiredRam;
+  return {
+    batchRequiredRam,
+    oneBatchRAM,
+  }
 }
 
 /** @param {NS} ns 
@@ -129,7 +132,7 @@ function getSortedTargetsToHack(ns, targetHosts) {
   function calculateHackSignificance(moneyMax, hackChance, targetHost) {
     const { weakenTime } = getServerHackingInfoBatch(ns, targetHost, HACK_AMOUNT_MULTIPLIER);
     const warmUpTime = weakenTime - ONE_WINDOW_DELAY;
-    const averageWait = (warmUpTime + warmUpTime * APPROXIMATE_WARMUP_TIMES_BEFORE_EMERGENCY) / 2;
+    const averageWait = (warmUpTime + warmUpTime * APPROXIMATE_EMERGENCY_COUNT_IN_WARMUP_TIME_PERIOD) / 2;
     const potentialMoneyPerSecond = moneyMax / averageWait;
     return potentialMoneyPerSecond * hackChance;
   }
@@ -149,8 +152,8 @@ function getSortedTargetsToHack(ns, targetHosts) {
  *  @param {string[]} executableHosts
  *  @return {string | undefined}
 */
-function getHostForRequiredRAM(ns, requiredRAM, executableHosts) {
-  return executableHosts
+function getHostForRequiredRAM(ns, requiredRAM, executableHosts, alternativeRAM = 0) {
+  const sortedHostsByRAM = executableHosts
     .map(host => {
       const server = ns.getServer(host);
       return {
@@ -158,8 +161,18 @@ function getHostForRequiredRAM(ns, requiredRAM, executableHosts) {
         ramLeft: server.maxRam - server.ramUsed
       }
     })
-    .sort((serverA, serverB) => serverA.ramLeft - serverB.ramLeft)
+    .sort((serverA, serverB) => serverA.ramLeft - serverB.ramLeft);
+
+  const foundedHostByRAM = sortedHostsByRAM
     .find(({ ramLeft }) => ramLeft > requiredRAM)?.host;
+
+  if (!foundedHostByRAM && alternativeRAM) {
+    return sortedHostsByRAM
+      .filter(({ ramLeft }) => ramLeft > alternativeRAM)
+      .pop()?.host;
+  }
+
+  return foundedHostByRAM;
 }
 
 /** @param {NS} ns 
@@ -306,7 +319,7 @@ async function prepareTargets(ns, targetHosts, executableHosts) {
     }
 
     ns.print(`Running ${targetHost} preparation`);
-    const requiredRAM = getRequiredRAMforBatch(
+    const { oneBatchRAM } = getRequiredRAMforBatch(
       ns,
       prepareBatchInfo.growWeakenThreads + prepareBatchInfo.weakenThreads,
       0,
@@ -315,7 +328,7 @@ async function prepareTargets(ns, targetHosts, executableHosts) {
       0, // only one batch in one time
     );
 
-    const isNeededExecutableHostExists = Boolean(executableHosts.find(host => ns.getServer(host).maxRam > requiredRAM));
+    const isNeededExecutableHostExists = Boolean(executableHosts.find(host => ns.getServer(host).maxRam > oneBatchRAM));
     if (!isNeededExecutableHostExists) {
       const prepareBatchPIDs = await prepareTargetDistributively(ns, targetHost, executableHosts);
       preparationPIDs.addPIDs(targetHost, prepareBatchPIDs);
@@ -325,7 +338,7 @@ async function prepareTargets(ns, targetHosts, executableHosts) {
     let executableHost;
     let isFirstTimeWait = true;
     do {
-      executableHost = getHostForRequiredRAM(ns, requiredRAM, executableHosts);
+      executableHost = getHostForRequiredRAM(ns, oneBatchRAM, executableHosts);
       if (!executableHost) {
         isFirstTimeWait && ns.print(`Waiting for host availability to prepare ${targetHost}`);
         await ns.sleep(ONE_WINDOW_DELAY);
@@ -362,17 +375,14 @@ async function prepareTargets(ns, targetHosts, executableHosts) {
  *  @param {number} requiredRAM
  *  @return {boolean}
 */
-function emergencyCheck(ns, targetHost, requiredRAM) {
+function emergencyCheck(ns, targetHost) {
   const targetServer = ns.getServer(targetHost);
-  const isLoadCheckPassed = targetServer.ramUsed <= requiredRAM * REQUIRED_RAM_EMERGENCY_CHECK_MULTIPLIER;
   let allowedMoneyLeft = targetServer.moneyMax;
   for (let hackRound = 1; hackRound <= MAX_HACK_TIMES_EMERGENCY_CHECK; hackRound++) {
     allowedMoneyLeft = allowedMoneyLeft - allowedMoneyLeft * HACK_AMOUNT_MULTIPLIER;
   }
   const isMoneyAvailableCheckPassed = targetServer.moneyAvailable > allowedMoneyLeft;
-  isLoadCheckPassed || ns.print(`${targetHost} didn't pass load check`);
-  isMoneyAvailableCheckPassed || ns.print(`${targetHost} didn't pass available money check, allowed min money: ${allowedMoneyLeft}, money available: ${targetServer.moneyAvailable}`);
-  return isLoadCheckPassed && isMoneyAvailableCheckPassed;
+  return isMoneyAvailableCheckPassed;
 }
 
 /** @param {NS} ns 
@@ -389,17 +399,15 @@ function printBatchesInfo(ns, batchesInfo) {
   printTable(
     ns,
     'Running batches',
-    ['Target', 'Host', 'RAM (TB)', 'Warm Up Time', 'State'],
+    ['Target', 'Host', 'Warm Up Time', 'State'],
     batchesInfo.map(({
       batchInfo,
-      requiredRAM,
       executableHost,
       targetHost,
       state
     }) => [
       targetHost,
       executableHost,
-      requiredRAM.toFixed(2),
       getHMSStringDate(batchInfo.weakenTime - ONE_WINDOW_DELAY),
       state
     ])
@@ -471,7 +479,7 @@ export async function main(ns) {
   const batchesInfo = sortedTargetsToHack
     .map(targetHost => {
       const batchInfo = getServerHackingInfoBatch(ns, targetHost, HACK_AMOUNT_MULTIPLIER);
-      const requiredRAM = getRequiredRAMforBatch(
+      const { batchRequiredRam, oneBatchRAM } = getRequiredRAMforBatch(
         ns,
         batchInfo.predictedGrowWeakenThreads,
         batchInfo.predictedHackWeakenThreads,
@@ -479,16 +487,16 @@ export async function main(ns) {
         batchInfo.hackThreads,
         batchInfo.weakenTime
       );
-      const executableHost = getHostForRequiredRAM(ns, requiredRAM, [...nonDistributedExecutableHostsSet]);
+      const executableHost = getHostForRequiredRAM(ns, batchRequiredRam, [...nonDistributedExecutableHostsSet], oneBatchRAM);
       if (!executableHost) {
-        ns.print(`No free executable host with required RAM found for ${targetHost}, required RAM: ${requiredRAM / 1024} TB`);
+        ns.print(`No free executable host with required RAM found for ${targetHost}, required RAM: ${batchRequiredRam / 1024} TB`);
         return;
       }
       nonDistributedExecutableHostsSet.delete(executableHost);
 
       return {
         batchInfo,
-        requiredRAM,
+        batchRequiredRam,
         executableHost,
         targetHost,
         state: batchingStates.warmUp,
@@ -511,9 +519,10 @@ export async function main(ns) {
   }
 
   const emergencyPreparePids = new PIDSaver(ns);
+  const thisScriptName = ns.getScriptName();
+  let bestIncomeRate = 0;
   while (true) {
     batchesInfo.forEach(({
-      requiredRAM,
       batchInfo,
       executableHost,
       targetHost,
@@ -536,8 +545,8 @@ export async function main(ns) {
             batchInfo.weakenTime,
             batchInfo.growTime,
             batchInfo.hackTime
-          )
-          const isEmergencyCheckPassed = emergencyCheck(ns, targetHost, requiredRAM);
+          );
+          const isEmergencyCheckPassed = emergencyCheck(ns, targetHost);
           if (!isEmergencyCheckPassed) {
             ns.killall(executableHost, true);
             const prepareInfo = getServerHackingInfoBatch(ns, targetHost, HACK_AMOUNT_MULTIPLIER);
@@ -550,7 +559,7 @@ export async function main(ns) {
               prepareInfo.growThreads,
               prepareInfo.weakenTime,
               prepareInfo.growTime
-            )
+            );
             if (emergencyPids.every(pid => pid > 0)) {
               batchesInfo[index].state = batchingStates.emergencyRecovering;
               emergencyPreparePids.addPIDs(targetHost, emergencyPids);
@@ -561,6 +570,7 @@ export async function main(ns) {
           break;
         case batchingStates.emergencyRecovering:
           if (!emergencyPreparePids.getPIDs(targetHost).length) {
+            batchesInfo[index].batchInfo = getServerHackingInfoBatch(ns, targetHost, HACK_AMOUNT_MULTIPLIER);
             batchesInfo[index].state = batchingStates.warmUp;
             batchesInfo[index].warmUpEndTime = new Date().getTime() + batchInfo.weakenTime - ONE_WINDOW_DELAY;
           }
@@ -569,7 +579,12 @@ export async function main(ns) {
     })
 
     printBatchesInfo(ns, batchesInfo);
-    ns.print(`Brings money at this moment: ${batchesInfo.filter(({ state }) => state === batchingStates.processing).length} / ${batchesInfo.length}`)
+    ns.print(`Brings money at this moment: ${batchesInfo.filter(({ state }) => state === batchingStates.processing).length} / ${batchesInfo.length}`);
+
+    const currentIncomeRate = ns.getScriptIncome(thisScriptName, thisHostName, ...ns.args);
+    if (currentIncomeRate > bestIncomeRate) bestIncomeRate = currentIncomeRate;
+    ns.print(`Current / Best income rate: ${convertNumberToSuffixedString(currentIncomeRate)} / ${convertNumberToSuffixedString(bestIncomeRate)}`);
+
     await ns.sleep(WINDOW_BETWEEN_BATCHES);
   }
 }

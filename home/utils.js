@@ -148,7 +148,6 @@ export function getBestAvailableTargetsToHackDESC(ns) {
 
 /** @param {NS} ns */
 export function getBestAvailableTargetsToHackDESCLite(ns) {
-  const player = ns.getPlayer();
   const hosts = getAllHostsToHack(ns);
   const hostsAvailableToHack = hosts.filter(host => isAbleToGetRoot(ns, host));
   return hostsAvailableToHack.map(host => {
@@ -413,4 +412,19 @@ export function printTable(ns, tableName, headers, data) {
   ns.print(tableNameDashes + ' ' + tableName + ' ' + tableNameDashes);
   ns.print(headerStr);
   trimmedData.forEach(row => ns.print(row.join(SEPARATOR)));
+}
+
+/** @param {number} number
+ *  @param {string[]} suffixes
+*/
+export function convertNumberToSuffixedString(number, suffixes = ['$/s', 'k/s', 'm/s', 'b/s', 't/s', 'q/s', 'Q/s']) {
+  let devidedTimes = 0;
+  while (
+    number.toFixed().length > 3 &&
+    suffixes.length - 1 > devidedTimes
+  ) {
+    number /= 1000;
+    devidedTimes += 1;
+  }
+  return number.toFixed(3) + ' ' + suffixes[devidedTimes];
 }

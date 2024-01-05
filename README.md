@@ -54,6 +54,7 @@ Also contains simpleHackManager.js to run when you have a little bit more RAM to
 7. **monitorServer.js** - shows the server information and threads required to prepare batch and attack batch, updating info every ~50ms. Formula.exe required. (see the screenshot with output below)
 8. **findContracts.js** - finds host names with contracts.
 8. **findFile.js < substring >** - finds host names with file by file name substring.
+9. **solveContracts.js** - find and solve contracts. (Not all contracts supported yet)
 
 monitorServer.js output<br>
 ![bitburner-monitor-server](https://github.com/NiksRakevich/bitburner-scripts/assets/32455265/fe1fa5cb-0691-4176-9d3c-d569b64dde29)

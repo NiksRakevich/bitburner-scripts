@@ -2,8 +2,9 @@ import { HELPLESS_HOST_NAMES } from 'utils.js';
 
 /** @param {NS} ns */
 export async function main(ns) {
-  const [organization] = ns.args;
+  const [organization, regexpFlags] = ns.args;
   const found = new Set();
+  const organizationRegexp = new RegExp(organization, regexpFlags);
 
   function findHost(parent) {
     const childs = ns
@@ -20,7 +21,7 @@ export async function main(ns) {
 
     for (let child of childs) {
       const childOrg = ns.getServer(child).organizationName;
-      if (childOrg === organization) return child;
+      if (childOrg.match(organizationRegexp)) return child;
       const foundedOrg = findHost(child);
       if (foundedOrg) {
         return foundedOrg;

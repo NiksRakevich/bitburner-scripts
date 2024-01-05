@@ -36,11 +36,13 @@ Features:
 4. Wait for the previous batch will be finished to run the next one
 5. Utilises all target and personal servers for attack
 
-## [Simple Hack](https://github.com/NiksRakevich/bitburner-scripts/blob/main/home/simpleHack.js)
+## [Simple Hack](https://github.com/NiksRakevich/bitburner-scripts/blob/main/home/simple-hack/simpleHack.js)
 Simple hack is a hacking script that can be used in early game since it is required only 2.40 GB of RAM per thread.<br>
 Attacking only one target (run one more script to attack another target of you have free RAM)
 
 Usage: run simpleHack.js target-host <-t number-of-threads>
+
+Also contains simpleHackManager.js to run when you have a little bit more RAM to automatically find targets and run simple hacks.
 
 # Helper Scripts Info
 1. **totalKill.js** - kill all processes in all servers you have root access to.

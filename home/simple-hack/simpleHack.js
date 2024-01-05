@@ -1,7 +1,7 @@
 /** @param {NS} ns */
 export async function main(ns) {
   const REQUIRED_MAX_MONEY_PERCENTAGE = 0.9;
-  const REQUIRED_MIN_SECYRITY_LEVEL_ADDITION = 4;
+  const REQUIRED_MIN_SECYRITY_LEVEL_ADDITION = 1;
   const TARGET_NAME = ns.args[0];
   if (!TARGET_NAME) {
     ns.print('No target host name specified');
